@@ -3,18 +3,36 @@ import sys
 
 #TODO
 #make self.select_square update a lot of rects at the same time by overloading argument
-
+#adding the jumping pawn thingy
+#en passent, is what i was trying to say
 class Piece:
 	def __init__ (self, piece, player, image=None, square_height=64, square_width=64, empty=False):
 		self.piece = piece 		#['p', 'b', 'kn', r', 'q', 'k']
 		self.player = player    #b o w
+		self.empty = empty
 		if empty:
 			self.image = pygame.Surface([64,64], pygame.SRCALPHA, 32)
+			self.piece = 'empty'
 		else:
 			self.image = pygame.image.load(image)
-	def is_valid_move (self, pick_up, put_down):
-		pass
-
+	def get_player (self):
+		return self.player
+	def is_same_player (self, second_piece):
+		if self.empty:
+			return False
+		if self.player == second_piece.player:
+			return True
+		else:
+			return False
+	def is_other_player (self, second_piece):
+		if self.empty:
+			return False
+		if self.player == second_piece.player:
+			return False
+		else:
+			return True
+	def is_empty (self):
+		return self.empty
 	def get_valid_moves (self, current_pos):
 		pass
 	def get_type (self):
@@ -28,10 +46,20 @@ class Board:
 		self.square_height = height/8
 		self.width = width
 		self.square_width = width/8
+		
+		self.current_turn = 'w'
+
+		self.error = pygame.mixer.music.load ('error.mp3', 'mp3')
 		self.image = pygame.image.load (image).convert()
+		
 		self.pieces = self.make_pieces()
+		
 		self.selected_img = pygame.image.load ("selected_img.jpg").convert ()
 		self.selected_img.set_alpha (100)
+
+		self.highlight_img = pygame.image.load ("highlight_img.png")
+		self.highlight_img.set_alpha (100)
+
 		self.init_pos ()
 		self.current_board_pos = self.pieces
 
@@ -54,7 +82,7 @@ class Board:
 		b_rook		= Piece ('r', 'b', 'rook_b.png')
 		b_queen		= Piece ('q', 'b', 'queen_b.png')
 		b_king 		= Piece ('k', 'b', 'king_b.png')
-		empty 		= Piece ('None', 'None', empty=True)
+		empty 		= Piece ('empty', 'None', empty=True)
 		self.empty = empty
 
 		return {(0, 0):b_rook, (1, 0):b_knight, (2, 0):b_bishop, (3, 0):b_queen, (4, 0):b_king, (5, 0):b_bishop, (6, 0):b_knight, (7, 0):b_rook,
@@ -82,22 +110,34 @@ class Board:
 					r.set_alpha (0)
 					r.fill ((0, 0, 155))
 					self.pieces_on_screen[(x, y)] = self.screen.blit (r, (x*64, y*64, 64, 64))
-	def move (self, selected_pos, pos):
+	def move (self, selected_pos, pos, possible_moves):
 
-		self.screen.blit (self.image, self.pieces_on_screen [pos], area=pygame.Rect(0 if sum(pos)%2==0 else 64, 0, 64, 64)) #blit the background on the clicked location
-		self.screen.blit (self.image, self.pieces_on_screen [selected_pos], area=pygame.Rect(0 if sum(selected_pos)%2==0 else 64, 0, 64, 64)) #blit the background on the selected location
-		self.screen.blit (self.current_board_pos [selected_pos].image, self.pieces_on_screen [pos]) #blit the piece from the selected location to the clicked one
-		pygame.display.update (self.pieces_on_screen[pos].union (self.pieces_on_screen [selected_pos])) #update the whole process
+		if self.current_board_pos [selected_pos].is_other_player (self.current_board_pos [pos]) and pos in possible_moves:
 
-		#updating the internal memory of the object
-		print ("the two objs: ", pos, selected_pos)
-		self.current_board_pos [pos] = self.current_board_pos [selected_pos]
-		self.current_board_pos [selected_pos] = self.empty
+			self.screen.blit (self.image, self.pieces_on_screen [pos], area=pygame.Rect(0 if sum(pos)%2==0 else 64, 0, 64, 64)) #blit the background on the clicked location
+			self.screen.blit (self.image, self.pieces_on_screen [selected_pos], area=pygame.Rect(0 if sum(selected_pos)%2==0 else 64, 0, 64, 64)) #blit the background on the selected location
+			self.screen.blit (self.current_board_pos [selected_pos].image, self.pieces_on_screen [pos]) #blit the piece from the selected location to the clicked one
+			pygame.display.update (self.pieces_on_screen[pos].union (self.pieces_on_screen [selected_pos])) #update the whole process
 
-	def mouse_selected_square (self, coordinates):
+			#updating the internal memory of the object
+			self.current_board_pos [pos] = self.current_board_pos [selected_pos]
+			self.current_board_pos [selected_pos] = self.empty
+			if self.current_turn == 'w':
+				self.current_turn = 'b'
+			else:
+				self.current_turn = 'w'
+			return True
+		elif self.current_board_pos [selected_pos].is_same_player (self.current_board_pos [pos]):
+			pygame.mixer.music.play ()
+			return False
+
+	def mouse_selected_square (self, coordinates, only_deselect=False):
 		coordinate = (coordinates[0]*64, coordinates[1]*64)	#to convert them from position values to pixel values. There s plays a role, hope you don't get confused!!
 		if coordinate == self.selected_rect_by_mouse.topleft:
 			#No need to repdate if the square is already selected
+			return None
+		if only_deselect:
+			self.deselect_square (self.selected_rect_by_mouse.topleft, cor_in_px=True)	
 			return None
 		self.deselect_square (self.selected_rect_by_mouse.topleft, cor_in_px=True)
 		self.select_square (coordinate, cor_in_px=True)
@@ -105,7 +145,7 @@ class Board:
 	def update_rect (self, rects):
 		for r in rects:
 			self.screen.update (r)
-	def select_square (self, coordinate, cor_in_px=False):
+	def select_square (self, coordinate, cor_in_px=False, image=None):
 		'''Takes a coordinates and selects the corresponding square'''
 		if cor_in_px:
 			coordinate_in_px = coordinate
@@ -113,11 +153,15 @@ class Board:
 		else:
 			coordinate_in_px = (coordinate[0]*64, coordinate[1]*64)
 			coordinate_in_car = coordinate
+		if image != None:
+			image = self.highlight_img
+		else:
+			image = self.selected_img
 
 		self.screen.blit (self.image, pygame.Rect (coordinate_in_px, (64, 64)), area=pygame.Rect(coordinate_in_px, (64, 64))) #bliting the background
 
 		#blit selected img
-		self.screen.blit (self.selected_img,  pygame.Rect (coordinate_in_px, (64, 64)), area=pygame.Rect ((0, 0), (64, 64)))
+		self.screen.blit (image,  pygame.Rect (coordinate_in_px, (64, 64)), area=pygame.Rect ((0, 0), (64, 64)))
 
 		self.screen.blit (self.current_board_pos [coordinate_in_car].image, pygame.Rect (coordinate_in_px, (64, 64))) #bliting the piece
 		
@@ -149,31 +193,81 @@ class Board:
 		#finds possible plays but not accounting for other pieces
 
 		piece_type = self.current_board_pos[coordinate].get_type () # is one of these ['p', 'b', 'kn', r', 'q', 'k']
+		player = self.current_board_pos [coordinate].get_player ()
+		if player != self.current_turn:
+			return []
 		possible_plays = []
+		if piece_type == 'empty':
+			return []
+		elif piece_type == 'p':		#pawn
+			i = coordinate [0]
+			j =  (coordinate [1] - 1 ) if player == 'w' else (coordinate [1] + 1)
+			if self.is_inside_the_board ((i,j)) and self.current_board_pos [(i, j)].is_empty():		#pawn advance when there's no piece ahead
+				possible_plays.append ((i, j))
+			i = coordinate [0] + 1
+			j = (coordinate [1] - 1 ) if player == 'w' else (coordinate [1] + 1)
+			if self.is_inside_the_board ((i, j)) and self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):	#pawn can take other players piece if 
+				possible_plays.append ((i, j))
+			i = coordinate [0] - 1
+			j = (coordinate [1] - 1 ) if player == 'w' else (coordinate [1] + 1)
+			if self.is_inside_the_board ((i, j)) and self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):	#they're on either side of the pawn
+				possible_plays.append ((i, j))
+			#pawn can jump twice at the send and 7th rank. i = 1, 6
+			print (coordinate)
+			if coordinate [1] == 6 and player == 'w' and self.current_board_pos [(coordinate [0], 5)].is_empty ():
+				possible_plays.append ((coordinate [0], coordinate [1] - 2))
+			elif coordinate [1] == 1 and player == 'b' and self.current_board_pos [(coordinate [0], 2)].is_empty ():
+				possible_plays.append ((coordinate [0], coordinate [1] + 2))
 
-		if piece_type == 'p':		#pawn
-			possible_plays.append ((coordinate [0]	  , coordinate [1] - 1))
-			possible_plays.append ((coordinate [0] + 1, coordinate [1] - 1))
-			possible_plays.append ((coordinate [0] - 1, coordinate [1] - 1))
 		elif piece_type == 'b':	#bishop
-			temp = []
 			i, j = coordinate
-			while coordinate [0] >= 0 and coordinate [1] >= 0:	#go to top left 	//-1 -1
-				temp.append ((i - 1, j - 1))
+			while i >= 0 and j >= 0:	#go to top left 	//-1 -1
+				i -= 1
+				j -= 1
+				if not self.is_inside_the_board ((i, j)):
+					break
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+				
 			i, j = coordinate
-			while coordinate [0] <= 7 and coordinate [1] >= 0:	#go to top right 	//+1 -1
-				temp.append ((i + 1, j - 1))
+			while i <= 7 and j >= 0:	#go to top right 	//+1 -1
+				i += 1
+				j -= 1
+				if not self.is_inside_the_board ((i, j)):
+					break
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+				
 			i, j = coordinate
-			while coordinate [0] <= 7 and coordinate [1] <= 7:	#go to bottom right //+1 +1
-				temp.append ((i + 1, j + 1))
+			while i <= 7 and j <= 7:	#go to bottom right //+1 +1
+				i += 1
+				j += 1
+				if not self.is_inside_the_board ((i, j)):
+					break
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+				
 			i, j = coordinate
-			while coordinate [0] <= 0 and coordinate [1] <= 7:	#go to bottom left  //-1 +1
-				temp.append ((i - 1, j + 1))
-			for t in temp:
-				if is_inside_the_board (t):
-					possible_plays.append (t)
-			del t
-
+			while i >= 0 and j <= 7:	#go to bottom left  //-1 +1
+				i -= 1
+				j += 1
+				if not self.is_inside_the_board ((i, j)):
+					break
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+			
 		elif piece_type == 'kn':	#knight
 			temp = []
 			temp.append ((coordinate [0] + 2, coordinate[1] + 1))
@@ -189,49 +283,150 @@ class Board:
 			temp.append ((coordinate [0] - 1, coordinate[1] - 2))
 
 			for t in temp:
-				if self.is_inside_the_board (t):
+				if self.is_inside_the_board (t) and not self.current_board_pos [t].is_same_player (self.current_board_pos [coordinate]):
 					possible_plays.append (t)
 			del t
 
 		elif piece_type == 'r':	#rook
-			for x in range (7):
-				if x == coordinate [0]:
-					continue 
-				possible_plays.append( (x, coordinate [1]))
-			for y in range (7):
-				if y == coordinate [1]:
-					continue 
-				possible_plays.append ((coordinate [0], y))
-
+			i, j = coordinate
+			while i >= 0:
+				i -= 1
+				if not self.is_inside_the_board ((i, j)):
+					break 
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					possible_plays.append ((i, j))
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+			i, j = coordinate
+			while i <= 7:
+				i += 1
+				if not self.is_inside_the_board ((i, j)):
+					break 
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					possible_plays.append ((i, j))
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+			i, j = coordinate
+			while j <= 7:
+				j += 1
+				if not self.is_inside_the_board ((i, j)):
+					break 
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					possible_plays.append ((i, j))
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+			i, j = coordinate
+			while j >= 0:
+				j -= 1
+				if not self.is_inside_the_board ((i, j)):
+					break 
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					possible_plays.append ((i, j))
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
 		elif piece_type == 'q':	#queen
 			#rook moves
-			temp = []
-			for x in range (7):
-				if x == coordinate [0]:
-					continue 
-				temp.append ((x, coordinate [1]))
-			for y in range (7):
-				if y == coordinate [1]:
-					continue 
-				temp.append ((coordinate [0], y))
+			i, j = coordinate
+			while i >= 0:
+				i -= 1
+				if not self.is_inside_the_board ((i, j)):
+					break 
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					possible_plays.append ((i, j))
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+			i, j = coordinate
+			while i <= 7:
+				i += 1
+				if not self.is_inside_the_board ((i, j)):
+					break 
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					possible_plays.append ((i, j))
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+			i, j = coordinate
+			while j <= 7:
+				j += 1
+				if not self.is_inside_the_board ((i, j)):
+					break 
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					possible_plays.append ((i, j))
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+			i, j = coordinate
+			while j >= 0:
+				j -= 1
+				if not self.is_inside_the_board ((i, j)):
+					break 
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					possible_plays.append ((i, j))
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
 
 			#bishop juice
 			i, j = coordinate
-			while coordinate [0] >= 0 and coordinate [1] >= 0:	#go to top left 	//-1 -1
-				temp.append ((i - 1, j - 1))
+			while i >= 0 and j >= 0:	#go to top left 	//-1 -1
+				i -= 1
+				j -= 1
+				if not self.is_inside_the_board ((i, j)):
+					break
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+				
 			i, j = coordinate
-			while coordinate [0] <= 7 and coordinate [1] >= 0:	#go to top right 	//+1 -1
-				temp.append ((i + 1, j - 1))
+			while i <= 7 and j >= 0:	#go to top right 	//+1 -1
+				i += 1
+				j -= 1
+				if not self.is_inside_the_board ((i, j)):
+					break
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+				
 			i, j = coordinate
-			while coordinate [0] <= 7 and coordinate [1] <= 7:	#go to bottom right //+1 +1
-				temp.append ((i + 1, j + 1))
+			while i <= 7 and j <= 7:	#go to bottom right //+1 +1
+				i += 1
+				j += 1
+				if not self.is_inside_the_board ((i, j)):
+					break
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
+				
 			i, j = coordinate
-			while coordinate [0] <= 0 and coordinate [1] <= 7:	#go to bottom left  //-1 +1
-				temp.append ((i - 1, j + 1))
-			for t in temp:
-				if is_inside_the_board (t):
-					possible_plays.append (t)
-			del t
+			while i >= 0 and j <= 7:	#go to bottom left  //-1 +1
+				i -= 1
+				j += 1
+				if not self.is_inside_the_board ((i, j)):
+					break
+				if self.current_board_pos [(i, j)].is_other_player (self.current_board_pos [coordinate]):
+					break
+				if self.current_board_pos [(i, j)].is_same_player (self.current_board_pos [coordinate]):
+					break
+				possible_plays.append ((i, j))
 
 		elif piece_type == 'k':	#king
 			temp = []
@@ -245,7 +440,7 @@ class Board:
 			temp.append ((coordinate [0] - 0, coordinate[1] + 1))
 
 			for t in temp:
-				if is_inside_the_board (t):
+				if self.is_inside_the_board (t):
 					possible_plays.append (t)
 		
 		return possible_plays
@@ -254,36 +449,50 @@ class Board:
 def init ():
 	running = True
 	pygame.init()
-	b, screen = set_board ()
+	(b, screen) = set_board ()
 	
 	selected_pos = None
+	highlighted_squares = []
+	mouse_selection_on = True
 	while running:
 		event = pygame.event.wait()
 		if event.type == pygame.QUIT:
 			running = False
-		if event.type == pygame.MOUSEBUTTONDOWN and selected_pos == None:
+		if event.type == pygame.MOUSEBUTTONDOWN and highlighted_squares == []:
 			pieces_rect = b.get_pieces ()
 			for position in pieces_rect:
 				if pieces_rect [position].collidepoint (event.pos):
-					for to in b.get_possible_moves(position):
-						b.select_square (to)
-					selected_pos = position
+					highlighted_squares = b.get_possible_moves(position)
+					if highlighted_squares != []:
+						mouse_selection_on = False
+						selected_position = position
+					else:
+						break
+					for to in highlighted_squares:
+						b.select_square (to, image=b.highlight_img)
 					break
+
 			continue 
 
-		if event.type == pygame.MOUSEBUTTONDOWN and selected_pos != None:
+		if event.type == pygame.MOUSEBUTTONDOWN and highlighted_squares != []:
 			pieces_rect = b.get_pieces ()
 			for position in pieces_rect:
 				if pieces_rect [position].collidepoint (event.pos):
-					b.move (selected_pos, position)
-					selected_pos = None
+					mouse_selection_on = True
+					for sqr in highlighted_squares:
+						b.deselect_square (sqr)
+					#moving the acutal pieces
+					b.move (selected_position, position, highlighted_squares)
+					highlighted_squares = []
+					selected_position = None
+					pygame.event.post (pygame.event.Event (pygame.MOUSEMOTION ,{'pos': [position[0]*64, position [1]*64], 'rel': (0, 0), 'buttons': (0, 0, 0), 'touch': False, 'window': None}))
 					break
 			continue
-		if event.type == pygame.MOUSEMOTION:
+		if event.type == pygame.MOUSEMOTION and mouse_selection_on:
 			pieces_rect = b.get_pieces ()
-			for pos in pieces_rect:
-				if pieces_rect [pos].collidepoint (event.pos):
-					b.mouse_selected_square (pos)
+			for posi in pieces_rect:
+				if pieces_rect [posi].collidepoint (event.pos):
+					b.mouse_selected_square (posi)
 					break
 				continue
 
